@@ -48,7 +48,7 @@ def get_buffer_string(conversations: list[MessageModel]) -> str:
 
 
 def get_bedrock_client():
-    client = boto3.client("bedrock-runtime", BEDROCK_REGION)
+    client = boto3.client("bedrock-agent-runtime", BEDROCK_REGION)
 
     return client
 

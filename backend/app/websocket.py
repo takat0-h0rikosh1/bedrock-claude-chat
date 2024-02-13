@@ -43,6 +43,13 @@ def handler(event, context):
     domain_name = message_content["requestContext"]["domainName"]
     stage = message_content["requestContext"]["stage"]
     message = message_content["body"]
+    # UIから入力された文字列
+    print('-----------------')
+    print(f"message: {message}")
+    print('-----------------')
+    message_dict = json.loads(message)
+    print(f'message.body: {message_dict["message"]["content"]["body"]}')
+    prompt = message_dict["message"]["content"]["body"]
     endpoint_url = f"https://{domain_name}/{stage}"
     gatewayapi = boto3.client("apigatewaymanagementapi", endpoint_url=endpoint_url)
 
@@ -97,48 +104,98 @@ def handler(event, context):
 
     payload = get_invoke_payload(message_map, chat_input)
 
+    print('-----------------')
+    print(f"payload: {payload}")
+
     try:
+        # 推論用テキストモデルの情報
+        model_id = "anthropic.claude-v2:1"
+        region = "us-east-1"
+
         # Invoke bedrock streaming api
-        response = client.invoke_model_with_response_stream(
-            body=payload["body"],
-            modelId=payload["model_id"],
-            accept=payload["accept"],
-            contentType=payload["content_type"],
+        response = client.retrieve_and_generate(
+            input={
+                "text": prompt
+                # 'text': 'ファンド予約機能について詳解してください'
+                # 'text': 'Echo 第4世代の特徴は何ですか。'
+                # 'text': 'Fire HD 8 タブレットの耐久性について教えてください。'
+                # 'text': 'Kindle Unlimited では何冊の本を読めますか。'
+            },
+            retrieveAndGenerateConfiguration={
+                'type': 'KNOWLEDGE_BASE',
+                'knowledgeBaseConfiguration': {
+                    'knowledgeBaseId': "2NC46ZXKOW",
+                    'modelArn': f'arn:aws:bedrock:{region}::foundation-model/{model_id}'
+                }
+            }
         )
+        print('-----------------')
+        print(response)
     except Exception as e:
         print(f"Failed to invoke bedrock: {e}")
         return {"statusCode": 500, "body": "Failed to invoke bedrock."}
 
-    stream = response.get("body")
+    # 同期的にレスポンスを返す実装
     completions = []
-    for chunk in generate_chunk(stream):
-        chunk_data = json.loads(chunk.decode("utf-8"))
-        completions.append(chunk_data["completion"])
-        if "stop_reason" in chunk_data and chunk_data["stop_reason"] is not None:
-            # Persist conversation before finish streaming so that front-end can avoid 404 issue
-            concatenated = "".join(completions)
-            # Append entire completion as the last message
-            assistant_msg_id = str(ULID())
-            message = MessageModel(
-                role="assistant",
-                content=ContentModel(content_type="text", body=concatenated),
-                model=chat_input.message.model,
-                children=[],
-                parent=user_msg_id,
-                create_time=get_current_time(),
-            )
-            conversation.message_map[assistant_msg_id] = message
-            # Append children to parent
-            conversation.message_map[user_msg_id].children.append(assistant_msg_id)
-            conversation.last_message_id = assistant_msg_id
+    for i, citation in enumerate(response['citations']):
+        response_part=citation['generatedResponsePart']['textResponsePart']['text']
+        completions.append(response_part)
+        print('-----------------')
+        print(response_part)
 
-            store_conversation(user_id, conversation)
-        try:
-            # Send completion
-            gatewayapi.post_to_connection(ConnectionId=connection_id, Data=chunk)
-        except Exception as e:
-            print(f"Failed to post message: {str(e)}")
-            return {"statusCode": 500, "body": "Failed to send message to connection."}
+    concatenated = "".join(completions)
+    assistant_msg_id = str(ULID())
+    message = MessageModel(
+        role="assistant",
+        content=ContentModel(content_type="text", body=concatenated),
+        model=chat_input.message.model,
+        children=[],
+        parent=user_msg_id,
+        create_time=get_current_time(),
+    )
+    conversation.message_map[assistant_msg_id] = message
+    # Append children to parent
+    conversation.message_map[user_msg_id].children.append(assistant_msg_id)
+    conversation.last_message_id = assistant_msg_id
+
+    store_conversation(user_id, conversation)
+    try:
+        # Send completion
+        gatewayapi.post_to_connection(ConnectionId=connection_id, Data=concatenated.encode('utf-8'))
+    except Exception as e:
+        print(f"Failed to post message: {str(e)}")
+        return {"statusCode": 500, "body": "Failed to send message to connection."}
+
+    # stream = response.get("body")
+    # completions = []
+    # for chunk in generate_chunk(stream):
+    #     chunk_data = json.loads(chunk.decode("utf-8"))
+    #     completions.append(chunk_data["completion"])
+    #     if "stop_reason" in chunk_data and chunk_data["stop_reason"] is not None:
+    #         # Persist conversation before finish streaming so that front-end can avoid 404 issue
+    #         concatenated = "".join(completions)
+    #         # Append entire completion as the last message
+    #         assistant_msg_id = str(ULID())
+    #         message = MessageModel(
+    #             role="assistant",
+    #             content=ContentModel(content_type="text", body=concatenated),
+    #             model=chat_input.message.model,
+    #             children=[],
+    #             parent=user_msg_id,
+    #             create_time=get_current_time(),
+    #         )
+    #         conversation.message_map[assistant_msg_id] = message
+    #         # Append children to parent
+    #         conversation.message_map[user_msg_id].children.append(assistant_msg_id)
+    #         conversation.last_message_id = assistant_msg_id
+
+    #         store_conversation(user_id, conversation)
+    #     try:
+    #         # Send completion
+    #         gatewayapi.post_to_connection(ConnectionId=connection_id, Data=chunk)
+    #     except Exception as e:
+    #         print(f"Failed to post message: {str(e)}")
+    #         return {"statusCode": 500, "body": "Failed to send message to connection."}
 
     # Update bot last used time
     if chat_input.bot_id:

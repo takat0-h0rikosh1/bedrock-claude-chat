@@ -78,7 +78,7 @@ export class Api extends Construct {
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       memorySize: 1024,
-      timeout: Duration.seconds(30),
+      timeout: Duration.seconds(120),
       environment: {
         TABLE_NAME: database.tableName,
         CORS_ALLOW_ORIGINS: allowOrigins.join(","),
