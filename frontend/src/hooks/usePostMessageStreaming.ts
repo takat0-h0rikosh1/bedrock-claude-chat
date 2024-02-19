@@ -36,27 +36,31 @@ const usePostMessageStreaming = create<{
               return;
             }
 
-            const data = JSON.parse(message.data);
+            dispatch(message.data);
+            ws.close();
 
-            if (data.completion || data.completion === '') {
-              if (completion.endsWith(i18next.t('app.chatWaitingSymbol'))) {
-                completion = completion.slice(0, -1);
-              }
+            // const data = JSON.parse(message.data);
 
-              completion +=
-                data.completion +
-                (data.stop_reason ? '' : i18next.t('app.chatWaitingSymbol'));
-              dispatch(completion);
-              if (data.stop_reason) {
-                ws.close();
-              }
-            } else if (data.status) {
-              dispatch(i18next.t('app.chatWaitingSymbol'));
-            } else {
-              ws.close();
-              console.error(data);
-              throw new Error(i18next.t('error.predict.invalidResponse'));
-            }
+            // if (data.completion || data.completion === '') {
+              
+            //   if (completion.endsWith(i18next.t('app.chatWaitingSymbol'))) {
+            //     completion = completion.slice(0, -1);
+            //   }
+
+            //   completion +=
+            //     data.completion +
+            //     (data.stop_reason ? '' : i18next.t('app.chatWaitingSymbol'));
+            //   dispatch(completion);
+            //   if (data.stop_reason) {
+            //     ws.close();
+            //   }
+            // } else if (data.status) {
+            //   dispatch(i18next.t('app.chatWaitingSymbol'));
+            // } else {
+            //   ws.close();
+            //   console.error(data);
+            //   throw new Error(i18next.t('error.predict.invalidResponse'));
+            // }
           } catch (e) {
             console.error(e);
             reject(i18next.t('error.predict.general'));
